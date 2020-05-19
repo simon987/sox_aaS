@@ -16,10 +16,11 @@ import (
 var logger, _ = zap.NewProduction()
 var cache = ttlcache.NewCache()
 
-func Spectrogram(file []byte, x, y, z int64, label, window string) ([]byte, error) {
+func Spectrogram(file []byte, x, y, z int64, label, window, t string) ([]byte, error) {
 
 	cmd := exec.Command(
 		"sox",
+		"-t", t,
 		"-",
 		"-n", "remix", "1", "spectrogram",
 		"-t", label,
@@ -75,6 +76,7 @@ type SpectrogramReq struct {
 	Y      int64  `json:"y"`
 	Z      int64  `json:"z"`
 	Window string `json:"window"`
+	Type   string `json:"type"`
 }
 
 func (req *SpectrogramReq) IsValid() bool {
@@ -131,6 +133,7 @@ func SpectrogramHandler(ctx *gin.Context) {
 	req.Z, _ = strconv.ParseInt(ctx.PostForm("z"), 10, 64)
 	req.Label = ctx.PostForm("label")
 	req.Window = ctx.PostForm("window")
+	req.Type = ctx.PostForm("type")
 
 	if !req.IsValid() {
 		ctx.JSON(400, map[string]string{
@@ -139,7 +142,7 @@ func SpectrogramHandler(ctx *gin.Context) {
 		return
 	}
 
-	out, err := Spectrogram(req.Data, req.X, req.Y, req.Z, req.Label, req.Window)
+	out, err := Spectrogram(req.Data, req.X, req.Y, req.Z, req.Label, req.Window, req.Type)
 	if err != nil {
 		ctx.JSON(500, map[string]string{
 			"error": err.Error(),
@@ -212,7 +215,7 @@ func IndexHandler(ctx *gin.Context) {
 			Z
 			<input type="number" name="z" id="z" placeholder="z" value="100" min="20" max="120">
 		</label>
-		<label for="z">
+		<label for="label">
 			Label
 			<input type="text" name="label" id="label" placeholder="label">
 		</label>
@@ -227,6 +230,7 @@ func IndexHandler(ctx *gin.Context) {
 				<option>Dolph</option>
 			</select>
 		</label>
+		<input name="type" id="type" style="display: none">
 		<input type="file" name="data" id="upload" style="display: none">
 	</form>
 
@@ -242,8 +246,9 @@ function onUpload() {
     const uploadElem = document.getElementById("upload");
     uploadElem.click()
 
-    uploadElem.onchange = () => {
-		document.getElementById("form").submit();
+    uploadElem.onchange = e => {
+        document.getElementById("type").value = document.getElementById("upload").value.split(".").slice(-1)[0];
+        document.getElementById("form").submit();
     }
 }
 </script>
