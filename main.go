@@ -279,7 +279,7 @@ func main() {
 
 	addr := os.Getenv("API_ADDR")
 	if addr == "" {
-		addr = "localhost:3000"
+		addr = "0.0.0.0:3000"
 	}
 
 	r.Run(addr)
