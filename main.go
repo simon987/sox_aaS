@@ -1,18 +1,22 @@
 package main
 
 import (
+	"github.com/ReneKroon/ttlcache"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"html/template"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"strconv"
+	"time"
 )
 
 var logger, _ = zap.NewProduction()
+var cache = ttlcache.NewCache()
 
-func Spectrogram(file []byte, x, y, z int64, label string) ([]byte, error) {
+func Spectrogram(file []byte, x, y, z int64, label, window string) ([]byte, error) {
 
 	cmd := exec.Command(
 		"sox",
@@ -20,7 +24,7 @@ func Spectrogram(file []byte, x, y, z int64, label string) ([]byte, error) {
 		"-n", "remix", "1", "spectrogram",
 		"-t", label,
 		"-x", strconv.FormatInt(x, 10), "-y", strconv.FormatInt(y, 10), "-z", strconv.FormatInt(z, 10),
-		"-w", "Kaiser",
+		"-w", window,
 		"-o", "-",
 	)
 
@@ -65,11 +69,12 @@ func Spectrogram(file []byte, x, y, z int64, label string) ([]byte, error) {
 }
 
 type SpectrogramReq struct {
-	Data  []byte `json:"data"`
-	Label string `json:"label"`
-	X     int64  `json:"x"`
-	Y     int64  `json:"y"`
-	Z     int64  `json:"z"`
+	Data   []byte `json:"data"`
+	Label  string `json:"label"`
+	X      int64  `json:"x"`
+	Y      int64  `json:"y"`
+	Z      int64  `json:"z"`
+	Window string `json:"window"`
 }
 
 func (req *SpectrogramReq) IsValid() bool {
@@ -86,6 +91,11 @@ func (req *SpectrogramReq) IsValid() bool {
 	}
 
 	if len(req.Data) == 0 {
+		return false
+	}
+
+	if req.Window != "Hann" && req.Window != "Hamming" && req.Window != "Bartlett" &&
+		req.Window != "Rectangular" && req.Window != "Kaiser" && req.Window != "Dolph" {
 		return false
 	}
 
@@ -120,6 +130,7 @@ func SpectrogramHandler(ctx *gin.Context) {
 	req.Y, _ = strconv.ParseInt(ctx.PostForm("y"), 10, 64)
 	req.Z, _ = strconv.ParseInt(ctx.PostForm("z"), 10, 64)
 	req.Label = ctx.PostForm("label")
+	req.Window = ctx.PostForm("window")
 
 	if !req.IsValid() {
 		ctx.JSON(400, map[string]string{
@@ -128,7 +139,7 @@ func SpectrogramHandler(ctx *gin.Context) {
 		return
 	}
 
-	out, err := Spectrogram(req.Data, req.X, req.Y, req.Z, req.Label)
+	out, err := Spectrogram(req.Data, req.X, req.Y, req.Z, req.Label, req.Window)
 	if err != nil {
 		ctx.JSON(500, map[string]string{
 			"error": err.Error(),
@@ -136,7 +147,10 @@ func SpectrogramHandler(ctx *gin.Context) {
 		return
 	}
 
-	ctx.Data(200, "image/png", out)
+	key := uuid.New().String()
+	cache.Set(key, out)
+
+	ctx.Redirect(302, "/api/image/"+key)
 }
 
 type indexData struct {
@@ -155,18 +169,70 @@ func IndexHandler(ctx *gin.Context) {
 <head>
     <meta charset="UTF-8">
     <title>sox_aaS</title>
+	<style>
+	body {
+		font-family: "Helvetica Neue",Helvetica,Arial,sans-serif;
+	}
+	label {
+		display: block;
+		margin-bottom: 0.5em;
+	}
+	.box {
+		background: #90CAF9;
+		margin-left: auto;
+		margin-right: auto;
+		width: 500px;
+		padding: 1em;
+		box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
+		margin-top: 1em;	
+	}
+	button {
+		margin-left: auto;
+		display: block;
+	}
+	h3 {
+		text-align: center;
+	}
+	</style>
 </head>
 <body>
 
-<form method="post" id="form" enctype="multipart/form-data" action="/api/spectrogram">
-    <input type="number" name="x" id="x" placeholder="x" value="3000">
-    <input type="number" name="y" id="y" placeholder="y" value="500">
-    <input type="number" name="z" id="z" placeholder="y" value="120">
-    <input type="text" name="label" id="label" placeholder="label" value="Hello, world">
-	<input type="file" name="data" id="upload" style="display: none">
-</form>
+<div class="box">
+	<form method="post" id="form" enctype="multipart/form-data" action="/api/spectrogram">
+		<h3>Spectrogram</h3>
+		<label for="x">
+			X
+			<input type="number" name="x" id="x" placeholder="x" value="3000" min="100" max="200000">
+		</label>
+		<label for="y">
+			Y
+			<input type="number" name="y" id="y" placeholder="y" value="500" min="100" max="200000">
+		</label>
+		<label for="z">
+			Z
+			<input type="number" name="z" id="z" placeholder="z" value="100" min="20" max="120">
+		</label>
+		<label for="z">
+			Label
+			<input type="text" name="label" id="label" placeholder="label">
+		</label>
+		<label for="window">
+			Window
+			<select name="window" id="window">
+				<option>Hann</option>
+				<option>Hamming</option>
+				<option>Bartlett</option>
+				<option>Rectangular</option>
+				<option selected>Kaiser</option>
+				<option>Dolph</option>
+			</select>
+		</label>
+		<input type="file" name="data" id="upload" style="display: none">
+	</form>
 
-<button onclick="onUpload()">Spectrogram</button>
+	<button onclick="onUpload()">Upload</button>
+</div>
+
 
 </body>
 
@@ -186,13 +252,25 @@ function onUpload() {
 	t.Execute(ctx.Writer, data)
 }
 
+func ImageHandler(ctx *gin.Context) {
+	value, ok := cache.Get(ctx.Param("key"))
+	if !ok {
+		ctx.AbortWithStatus(404)
+		return
+	}
+	ctx.Data(200, "image/png", value.([]byte))
+}
+
 func main() {
 	gin.SetMode(gin.ReleaseMode)
 	defer logger.Sync()
+	defer cache.Close()
+	cache.SetTTL(5 * time.Minute)
 
 	r := gin.Default()
 	r.POST("/api/spectrogram", SpectrogramHandler)
 	r.GET("/", IndexHandler)
+	r.GET("/api/image/:key", ImageHandler)
 
 	addr := os.Getenv("API_ADDR")
 	if addr == "" {
