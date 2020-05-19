@@ -171,7 +171,7 @@ func IndexHandler(ctx *gin.Context) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>sox_aaS</title>
+    <title>SoX as a Service</title>
 	<style>
 	body {
 		font-family: "Helvetica Neue",Helvetica,Arial,sans-serif;
