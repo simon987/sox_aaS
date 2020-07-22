@@ -1,6 +1,9 @@
 # sox_aaS
 SoX commands as a service
 
+*NOTE: This project is no longer being maintained. 
+It has been integrated into [simon987/toolbox](https://github.com/simon987/toolbox)*
+
 ### Currently supported features:
 
 * spectrogram
